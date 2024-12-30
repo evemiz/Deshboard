@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Help Desk</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/babel-standalone/babel.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+    <script src="https://www.gstatic.com/charts/loader.js"></script>
+    <style>
+        .bi {
+            display: inline-block;
+            width: 1rem;
+            height: 1rem;
+        }
+
+        .navbar-brand {
+            padding-top: .75rem;
+            padding-bottom: .75rem;
+            background-color: rgba(0, 0, 0, .25);
+            box-shadow: inset -1px 0 0 rgba(0, 0, 0, .25);
+        }
+
+        .navbar .form-control {
+            padding: .75rem 1rem;
+        }
+
+        .sidebar {
+            background-color: rgb(216, 216, 216);
+            border: 0 solid black;
+            border-radius: 10px;
+        }
+
+        .table-text {
+            font-size: 1.2rem;
+        }
+
+        .chart-container {
+            width: 100%;
+            max-width: 600px;
+            margin: 0 auto;
+            height: auto;
+            }
+
+            #todayChart, #weekChart, #monthChart {
+            width: 100%;
+            height: 30vh;
+            }
+
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        // Helper function to calculate statistics
+        const calculateStats = (calls) => {
+            const timeFrames = { daily: 1, weekly: 7, monthly: 30 };
+            const stats = { daily: initStats(), weekly: initStats(), monthly: initStats() };
+            const agentStats = {};
+
+            // Set the start of today to 7:00 AM
+            const currentDate = new Date();
+            const todayStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate(), 7, 0, 0);
+
+            calls.forEach(call => {
+                const entryDate = new Date(call["Entry_Time"]);
+                const diffDays = (currentDate - entryDate) / (1000 * 3600 * 24);
+                const diffDaysFromTodayStart = (todayStart - entryDate) / (1000 * 3600 * 24);
+                const status = call["Status"];
+                const source = call["Source"];
+                const agent = call["Representative"];
+
+                // Update time frame stats
+                Object.entries(timeFrames).forEach(([frame, days]) => {
+                    const isWithinDaily = frame === "daily" ? diffDaysFromTodayStart <= 0 : diffDays <= days;
+                    if (isWithinDaily) {
+                        stats[frame]["all"]++;
+                        stats[frame][mapStatus(status)]++;
+
+                        // Update agent stats for this time frame
+                        if (!agentStats[agent]) {
+                            agentStats[agent] = initAgentStats();
+                        }
+                        agentStats[agent][frame]["all"]++;
+                        agentStats[agent][frame][mapStatus(status)]++;
+                        agentStats[agent][frame][mapSource(source)]++;
+                    }
+                });
+            });
+
+            return { ...stats, agentStats };
+
+            // Helper functions
+            function initStats() {
+                return { 
+                    pending: 0, 
+                    end: 0, 
+                    pass: 0, 
+                    direct: 0, 
+                    all: 0, 
+                    phone: 0, 
+                    whatsapp: 0, 
+                    mail: 0, 
+                    other: 0 
+                };
+            }
+
+            function initAgentStats() {
+                return {
+                    daily: initStats(),
+                    weekly: initStats(),
+                    monthly: initStats(),
+                };
+            }
+
+            function mapStatus(status) {
+                const statusMap = {
+                    "בהמתנה": "pending",
+                    "טופל": "end",
+                    "הועבר לגורם מטפל": "pass",
+                    "הופנה לגורם מטפל": "direct"
+                };
+                return statusMap[status] || "unknown";
+            }
+
+            function mapSource(source) {
+                const sourceMap = {
+                    "טלפון": "phone",
+                    "ווטסאפ": "whatsapp",
+                    "מייל": "mail",
+                    "אחר": "other"
+                };
+                return sourceMap[source] || "other";
+            }
+        };
+
+        function Home() {
+        const [display, setDisplay] = useState("כל הנתונים");
+        const [stats, setStats] = useState([]);
+        const [syncTime, setSyncTime] = useState(null);
+        const [pendingCalls, setPendingCalls] = useState([]);
+        const [selectedCall, setSelectedCall] = useState(null);
+
+        const isNotToday = (entryTime) => {
+            if (!entryTime) return false;
+            const entryDate = new Date(entryTime).toDateString();
+            const today = new Date().toDateString();
+            return entryDate !== today;
+        };
+
+        const handleRowClick = (call) => {
+            setSelectedCall(call);
+        };
+
+        const closeModal = () => {
+            setSelectedCall(null); 
+        };
+
+        function close() {
+            fetch('http://localhost:8080/close')
+                .catch(error => console.error('Error fetching stats:', error));
+                
+        }
+        // Fetch data from the /stats endpoint
+        useEffect(() => {
+            const fetchData = () => {
+                fetch('http://localhost:8080/stats')
+                    .then(response => response.json())
+                    .then(data => {
+                        setStats(data);
+                        setSyncTime(new Date().toLocaleString());
+                        updatePendingCalls(data);
+                        window.addEventListener('resize', function() {
+                            drawChart();
+                        });
+                    })
+                    .catch(error => console.error('Error fetching stats:', error));
+            };
+
+            fetchData();
+            const interval = setInterval(fetchData, 120000); // Fetch data every 2 minutes (120000)
+            return () => clearInterval(interval); // Clean up on component unmount
+        }, []);
+
+        const updatePendingCalls = (data) => {
+            const pending = data.filter(call => call["Status"] === "בהמתנה").slice(0, 22);
+            setPendingCalls(pending);
+        };
+
+        // Display loading message until stats are loaded
+        if (stats.length === 0) {
+            return <div className="container text-center"><h3>טוען נתונים...</h3></div>;
+        }
+
+        google.charts.load('current', { 'packages': ['corechart'] });
+        google.charts.setOnLoadCallback(drawChart);
+
+        // Calculate statistics
+        const { daily, weekly, monthly, agentStats } = calculateStats(stats);
+
+        function drawChart() {
+            const charts = [
+                { id: 'todayChart', data: daily, title: 'היום' },
+                { id: 'weekChart', data: weekly, title: 'השבוע' },
+                { id: 'monthChart', data: monthly, title: 'החודש' }
+            ];
+
+            charts.forEach(chart => {
+                const container = document.getElementById(chart.id);
+                if (container) {
+                    const pending = chart.data.pending || 0;
+                    const end = chart.data.end || 0;
+                    const pass = chart.data.pass || 0;
+                    const direct = chart.data.direct || 0;
+
+                    const data = google.visualization.arrayToDataTable([
+                        ['Category', 'Count'],
+                        [`בהמתנה ${pending}`, pending],
+                        [`טופל ${end}`, end],
+                        [`הועבר ${pass}`, pass],
+                        [`הופנה ${direct}`, direct]
+                    ]);
+
+                    const options = {
+                        title: chart.title,
+                        pieSliceText: 'label',
+                        legend: {
+                            textStyle: {
+                                fontSize: 15
+                            }
+                        },
+                        titleTextStyle: {
+                            fontSize: 20,
+                            bold: true,
+                            color: '#333'
+                        },
+                        colors: ['#FF6347', '#98FB98', '#8A2BE2', '#FFD700', '#20B2AA']
+                    };
+
+                    const pieChart = new google.visualization.PieChart(container);
+                    pieChart.draw(data, options);
+
+                    // Redraw the chart on window resize
+                    window.addEventListener('resize', () => {
+                        pieChart.draw(data, options);
+                    });
+                }
+            });
+        }
+
+        const handleSelect = (value) => {
+            setDisplay(value);
+        };
+
+        return (
+            <div>
+                <div className="container-fluid">
+                    <main className="ms-sm-auto px-md-4">
+                        <div className="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+                            <h1 className="h2">Dashboard</h1>
+                            <p className="mt-2">סינכרון אחרון :  {syncTime}</p>
+                            <button type="button" className="btn" onClick={close}>
+                                <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" fill="red" className="bi-x-circle" viewBox="0 0 16 16">
+                                    <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14m0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16"></path>
+                                    <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708"></path>
+                                </svg>
+                            </button>
+                        </div>
+                    </main>
+                    <div className="container-fluid">
+                        <div className="row">
+                        <div className="col">
+                            <div className="row me-2">
+                            <div className="btn-toolbar mb-2 mb-md-0">
+                                <div className="dropdown">
+                                    <button type="button" className="btn btn-sm btn-outline-secondary dropdown-toggle d-flex align-items-center gap-1" data-bs-toggle="dropdown" aria-expanded="false">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" className="bi bi-calendar" viewBox="0 0 16 16">
+                                            <path d="M3.5 0a.5.5 0 0 1 .5.5V1h8V.5a.5.5 0 0 1 1 0V1h1a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2h1V.5a.5.5 0 0 1 .5-.5M1 4v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V4z"/>
+                                        </svg>
+                                        {display}
+                                    </button>
+                                    <ul className="dropdown-menu">
+                                        <li><a className="dropdown-item" href="#" onClick={() => handleSelect("כל הנתונים")}>כל הנתונים</a></li>
+                                        <li><a className="dropdown-item" href="#" onClick={() => handleSelect("היום")}>היום</a></li>
+                                        <li><a className="dropdown-item" href="#" onClick={() => handleSelect("שבוע")}>שבוע</a></li>
+                                        <li><a className="dropdown-item" href="#" onClick={() => handleSelect("חודש")}>חודש</a></li>
+                                    </ul>
+                                </div>
+                            </div>    
+                        </div>
+                            {display === "היום" && (
+                                <div className="row d-flex justify-content-center align-items-center">
+                                    <div className="col-12 col-md-6">
+                                        <div id="todayChart" className="chart-container"></div>
+                                    </div>
+                                </div>
+                            )}
+                            {display === "שבוע" && (
+                                <div className="row d-flex justify-content-center align-items-center">
+                                    <div className="col-12 col-md-6">
+                                        <div id="weekChart" className="chart-container"></div>
+                                    </div>
+                                </div>
+                            )}
+                            {display === "חודש" && (
+                                <div className="row d-flex justify-content-center align-items-center">
+                                    <div className="col-12 col-md-6">
+                                        <div id="monthChart" className="chart-container"></div>
+                                    </div>
+                                </div>
+                            )}
+                            {display === "כל הנתונים" && (
+                                <div className="row d-flex justify-content-center align-items-center">
+                                    <div className="col-4">
+                                        <div id="todayChart" className="chart-container"></div>
+                                    </div>
+                                    <div className="col-4">
+                                        <div id="weekChart" className="chart-container"></div>
+                                    </div>
+                                    <div className="col-4">
+                                        <div id="monthChart" className="chart-container"></div>
+                                    </div>
+                                </div>
+                            )}
+                            <div className="row mx-5">
+                                {console.log(agentStats)}
+                                <table className="table table-striped ">
+                                    <thead>
+                                        <tr>
+                                            <th className="table-text">נציג</th>
+                                            <th className="table-text">סה"כ קריאות היום</th>
+                                            <th className="table-text">קריאות פתוחות</th>
+                                            <th className="table-text">טלפון</th>
+                                            <th className="table-text">מייל</th>
+                                            <th className="table-text">ווטסאפ</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {Object.entries(agentStats).map(([agentKey, agentValue], index) => (
+                                            <tr key={index}>
+                                                <td className="table-text" style={{ fontWeight: agentValue.daily.pending !== 0 ? 'bold' : 'normal', color: agentValue.daily.pending !== 0 ? 'green' : 'black' }}>
+                                                    {agentKey}
+                                                </td>
+                                                <td className="table-text">{agentValue.daily.all}</td>
+                                                <td className="table-text">{agentValue.daily.pending}</td>
+                                                <td className="table-text">{agentValue.daily.phone}</td>
+                                                <td className="table-text">{agentValue.daily.mail}</td>
+                                                <td className="table-text">{agentValue.daily.whatsapp}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        
+
+                        <div className="col-2 sidebar mt-3">
+                            <h3 className="my-4">קריאות בהמתנה...</h3>
+                            {pendingCalls.length > 0 ? (
+                                <table className="table table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>נציג</th>
+                                            <th>שם הפונה</th>
+                                            <th>נושא הפנייה</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {pendingCalls.map((call, index) => (
+                                            <tr 
+                                                key={index} 
+                                                onClick={() => handleRowClick(call)} 
+                                                style={{cursor: 'pointer'}}
+                                            >
+                                                <td>
+                                                    {call['Representative']}
+                                                    {isNotToday(call['Entry_Time']) && 
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="red" class="bi bi-exclamation-diamond-fill me-2" viewBox="0 0 16 16">
+                                                        <path d="M9.05.435c-.58-.58-1.52-.58-2.1 0L.436 6.95c-.58.58-.58 1.519 0 2.098l6.516 6.516c.58.58 1.519.58 2.098 0l6.516-6.516c.58-.58.58-1.519 0-2.098zM8 4c.535 0 .954.462.9.995l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 4.995A.905.905 0 0 1 8 4m.002 6a1 1 0 1 1 0 2 1 1 0 0 1 0-2"/>
+                                                    </svg>
+                                                }
+                                                </td>
+                                                <td>{call['Contact_Name']}</td>
+                                                <td>{call['Subject']}</td>
+                                                {console.log(call)}
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            ) : (
+                                <p>אין קריאות פתוחות בסטטוס "בהמתנה".</p>
+                            )}
+                            {selectedCall && (
+                                <div className="modal show d-block fade" tabIndex="-1" role="dialog">
+                                    <div className="modal-dialog" role="document">
+                                        <div className="modal-content">
+                                            <div className="modal-header">
+                                                <h5 className="modal-title">פרטי פנייה</h5>
+                                            </div>
+                                            <div className="modal-body">
+                                                <p><strong>נציג:</strong> {selectedCall['Representative']}</p>
+                                                <p><strong>זמן:</strong> {selectedCall['Entry_Time']}</p>
+                                                <p><strong>שם הפונה:</strong> {selectedCall['Contact_Name'] || "-"}</p>
+                                                <p><strong>טלפון:</strong> {selectedCall['Phone'] || "-"}</p>
+                                                <p><strong>נושא הפנייה:</strong> {selectedCall['Subject'] || "-"}</p>
+                                                <p><strong>תיאור:</strong> {selectedCall['Description'] || "-"}</p>
+                                                <p><strong>פעולות:</strong> {selectedCall['Actions'] || "-"}</p>
+                                            </div>
+                                            <div className="modal-footer">
+                                                <button type="button" className="btn btn-secondary" onClick={closeModal}>
+                                                    סגור
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            </div>
+        );
+    }
+
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<Home />);
+
+    </script>
+</body>
+</html>
