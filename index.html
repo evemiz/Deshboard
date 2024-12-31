@@ -43,12 +43,22 @@
             max-width: 600px;
             margin: 0 auto;
             height: auto;
-            }
+        }
 
-            #todayChart, #weekChart, #monthChart {
+        #todayChart, #weekChart, #monthChart {
             width: 100%;
             height: 30vh;
-            }
+        }
+
+        .dark-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            z-index: 1;
+        }
 
     </style>
 </head>
@@ -360,7 +370,7 @@
                         </div>
                         
 
-                        <div className="col-2 sidebar mt-3">
+                        <div className="col-2 sidebar mt-3 ms-4">
                             <h3 className="my-4">קריאות בהמתנה...</h3>
                             {pendingCalls.length > 0 ? (
                                 <table className="table table-hover">
@@ -397,7 +407,9 @@
                                 <p>אין קריאות פתוחות בסטטוס "בהמתנה".</p>
                             )}
                             {selectedCall && (
-                                <div className="modal show d-block fade" tabIndex="-1" role="dialog">
+                                <div>
+                                    <div className="dark-overlay"></div>
+                                    <div className="modal show d-block fade" tabIndex="2" role="dialog">
                                     <div className="modal-dialog" role="document">
                                         <div className="modal-content">
                                             <div className="modal-header">
@@ -420,7 +432,8 @@
                                         </div>
                                     </div>
                                 </div>
-                            )}
+                                </div>
+                                )}
                         </div>
                     </div>
                 </div>
